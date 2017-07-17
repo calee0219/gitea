@@ -75,6 +75,16 @@ func (r *Repository) CanEnableEditor() bool {
 	return r.Repository.CanEnableEditor() && r.IsViewBranch && r.IsWriter()
 }
 
+// CanCommitToBranch returns true if repository is editable and user has proper access level
+//   and branch is not protected
+func (r *Repository) CanCommitToBranch() (bool, error) {
+	protectedBranch, err := r.Repository.IsProtectedBranch(r.BranchName)
+	if err != nil {
+		return false, err
+	}
+	return r.CanEnableEditor() && !protectedBranch, nil
+}
+
 // GetEditorconfig returns the .editorconfig definition if found in the
 // HEAD of the default repo branch.
 func (r *Repository) GetEditorconfig() (*editorconfig.Editorconfig, error) {
@@ -275,6 +285,7 @@ func RepoAssignment() macaron.Handler {
 		ctx.Data["IsRepositoryWriter"] = ctx.Repo.IsWriter()
 
 		ctx.Data["DisableSSH"] = setting.SSH.Disabled
+		ctx.Data["ExposeAnonSSH"] = setting.SSH.ExposeAnonymous
 		ctx.Data["DisableHTTP"] = setting.Repository.DisableHTTPGit
 		ctx.Data["CloneLink"] = repo.CloneLink()
 		ctx.Data["WikiCloneLink"] = repo.WikiCloneLink()
@@ -322,13 +333,11 @@ func RepoAssignment() macaron.Handler {
 		if ctx.Repo.IsWriter() || (ctx.IsSigned && ctx.User.HasForkedRepo(ctx.Repo.Repository.ID)) {
 			// Pull request is allowed if this is a fork repository
 			// and base repository accepts pull requests.
-			if repo.BaseRepo != nil {
-				if repo.BaseRepo.AllowsPulls() {
-					ctx.Data["BaseRepo"] = repo.BaseRepo
-					ctx.Repo.PullRequest.BaseRepo = repo.BaseRepo
-					ctx.Repo.PullRequest.Allowed = true
-					ctx.Repo.PullRequest.HeadInfo = ctx.Repo.Owner.Name + ":" + ctx.Repo.BranchName
-				}
+			if repo.BaseRepo != nil && repo.BaseRepo.AllowsPulls() {
+				ctx.Data["BaseRepo"] = repo.BaseRepo
+				ctx.Repo.PullRequest.BaseRepo = repo.BaseRepo
+				ctx.Repo.PullRequest.Allowed = true
+				ctx.Repo.PullRequest.HeadInfo = ctx.Repo.Owner.Name + ":" + ctx.Repo.BranchName
 			} else {
 				// Or, this is repository accepts pull requests between branches.
 				if repo.AllowsPulls() {
@@ -339,6 +348,9 @@ func RepoAssignment() macaron.Handler {
 					ctx.Repo.PullRequest.HeadInfo = ctx.Repo.BranchName
 				}
 			}
+
+			// Reset repo units as otherwise user specific units wont be loaded later
+			ctx.Repo.Repository.Units = nil
 		}
 		ctx.Data["PullRequestCtx"] = ctx.Repo.PullRequest
 
@@ -380,6 +392,11 @@ func RepoRef() macaron.Handler {
 			if !ctx.Repo.GitRepo.IsBranchExist(refName) {
 				brs, err := ctx.Repo.GitRepo.GetBranches()
 				if err != nil {
+					ctx.Handle(500, "GetBranches", err)
+					return
+				} else if len(brs) == 0 {
+					err = fmt.Errorf("No branches in non-bare repository %s",
+						ctx.Repo.GitRepo.Path)
 					ctx.Handle(500, "GetBranches", err)
 					return
 				}
@@ -483,6 +500,42 @@ func RequireRepoWriter() macaron.Handler {
 	}
 }
 
+// LoadRepoUnits loads repsitory's units, it should be called after repository and user loaded
+func LoadRepoUnits() macaron.Handler {
+	return func(ctx *Context) {
+		var isAdmin bool
+		if ctx.User != nil && ctx.User.IsAdmin {
+			isAdmin = true
+		}
+
+		var userID int64
+		if ctx.User != nil {
+			userID = ctx.User.ID
+		}
+		err := ctx.Repo.Repository.LoadUnitsByUserID(userID, isAdmin)
+		if err != nil {
+			ctx.Handle(500, "LoadUnitsByUserID", err)
+			return
+		}
+	}
+}
+
+// CheckUnit will check whether
+func CheckUnit(unitType models.UnitType) macaron.Handler {
+	return func(ctx *Context) {
+		var find bool
+		for _, unit := range ctx.Repo.Repository.Units {
+			if unit.Type == unitType {
+				find = true
+				break
+			}
+		}
+		if !find {
+			ctx.Handle(404, "CheckUnit", fmt.Errorf("%s: %v", ctx.Tr("units.error.unit_not_allowed"), unitType))
+		}
+	}
+}
+
 // GitHookService checks if repository Git hooks service has been enabled.
 func GitHookService() macaron.Handler {
 	return func(ctx *Context) {
@@ -499,10 +552,8 @@ func UnitTypes() macaron.Handler {
 		ctx.Data["UnitTypeCode"] = models.UnitTypeCode
 		ctx.Data["UnitTypeIssues"] = models.UnitTypeIssues
 		ctx.Data["UnitTypePullRequests"] = models.UnitTypePullRequests
-		ctx.Data["UnitTypeCommits"] = models.UnitTypeCommits
 		ctx.Data["UnitTypeReleases"] = models.UnitTypeReleases
 		ctx.Data["UnitTypeWiki"] = models.UnitTypeWiki
-		ctx.Data["UnitTypeSettings"] = models.UnitTypeSettings
 		ctx.Data["UnitTypeExternalWiki"] = models.UnitTypeExternalWiki
 		ctx.Data["UnitTypeExternalTracker"] = models.UnitTypeExternalTracker
 	}

@@ -56,13 +56,19 @@ func renderDirectory(ctx *context.Context, treeLink string) {
 
 	var readmeFile *git.Blob
 	for _, entry := range entries {
-		if entry.IsDir() || !markup.IsReadmeFile(entry.Name()) {
+		if entry.IsDir() {
 			continue
 		}
 
-		// TODO: collect all possible README files and show with priority.
+		tp, ok := markup.ReadmeFileType(entry.Name())
+		if !ok {
+			continue
+		}
+
 		readmeFile = entry.Blob()
-		break
+		if tp != "" {
+			break
+		}
 	}
 
 	if readmeFile != nil {
@@ -111,6 +117,7 @@ func renderDirectory(ctx *context.Context, treeLink string) {
 		}
 	}
 	ctx.Data["LatestCommit"] = latestCommit
+	ctx.Data["LatestCommitVerification"] = models.ParseCommitWithSignature(latestCommit)
 	ctx.Data["LatestCommitUser"] = models.ValidateCommitWithEmail(latestCommit)
 
 	// Check permission to add or upload new file.
@@ -183,7 +190,7 @@ func renderFile(ctx *context.Context, entry *git.TreeEntry, treeLink, rawLink st
 
 		tp := markup.Type(blob.Name())
 		isSupportedMarkup := tp != ""
-		// FIXME: currently set IsMarkdown for compitable
+		// FIXME: currently set IsMarkdown for compatible
 		ctx.Data["IsMarkdown"] = isSupportedMarkup
 
 		readmeExist := isSupportedMarkup || markup.IsReadmeFile(blob.Name())
@@ -205,7 +212,11 @@ func renderFile(ctx *context.Context, entry *git.TreeEntry, treeLink, rawLink st
 			var output bytes.Buffer
 			lines := strings.Split(fileContent, "\n")
 			for index, line := range lines {
-				output.WriteString(fmt.Sprintf(`<li class="L%d" rel="L%d">%s</li>`, index+1, index+1, gotemplate.HTMLEscapeString(line)) + "\n")
+				line = gotemplate.HTMLEscapeString(line)
+				if index != len(lines)-1 {
+					line += "\n"
+				}
+				output.WriteString(fmt.Sprintf(`<li class="L%d" rel="L%d">%s</li>`, index+1, index+1, line))
 			}
 			ctx.Data["FileContent"] = gotemplate.HTML(output.String())
 
@@ -245,6 +256,25 @@ func renderFile(ctx *context.Context, entry *git.TreeEntry, treeLink, rawLink st
 
 // Home render repository home page
 func Home(ctx *context.Context) {
+	if len(ctx.Repo.Repository.Units) > 0 {
+		tp := ctx.Repo.Repository.Units[0].Type
+		if tp == models.UnitTypeCode {
+			renderCode(ctx)
+			return
+		}
+
+		unit, ok := models.Units[tp]
+		if ok {
+			ctx.Redirect(setting.AppSubURL + fmt.Sprintf("/%s%s",
+				ctx.Repo.Repository.FullName(), unit.URI))
+			return
+		}
+	}
+
+	ctx.Handle(404, "Home", fmt.Errorf(ctx.Tr("units.error.no_unit_allowed_repo")))
+}
+
+func renderCode(ctx *context.Context) {
 	ctx.Data["PageIsViewCode"] = true
 
 	if ctx.Repo.Repository.IsBare {

@@ -81,7 +81,7 @@ func Install(ctx *context.Context) {
 	form.RepoRootPath = setting.RepoRootPath
 	form.LFSRootPath = setting.LFS.ContentPath
 
-	// Note(unknwon): it's hard for Windows users change a running user,
+	// Note(unknown): it's hard for Windows users change a running user,
 	// 	so just use current one if config says default.
 	if setting.IsWindows && setting.RunUser == "git" {
 		form.RunUser = user.CurrentUsername()
@@ -112,6 +112,7 @@ func Install(ctx *context.Context) {
 	form.EnableCaptcha = setting.Service.EnableCaptcha
 	form.RequireSignInView = setting.Service.RequireSignInView
 	form.DefaultKeepEmailPrivate = setting.Service.DefaultKeepEmailPrivate
+	form.DefaultAllowCreateOrganization = setting.Service.DefaultAllowCreateOrganization
 	form.NoReplyAddress = setting.Service.NoReplyAddress
 
 	auth.AssignForm(form, ctx.Data)
@@ -295,6 +296,7 @@ func InstallPost(ctx *context.Context, form auth.InstallForm) {
 	cfg.Section("service").Key("ENABLE_CAPTCHA").SetValue(com.ToStr(form.EnableCaptcha))
 	cfg.Section("service").Key("REQUIRE_SIGNIN_VIEW").SetValue(com.ToStr(form.RequireSignInView))
 	cfg.Section("service").Key("DEFAULT_KEEP_EMAIL_PRIVATE").SetValue(com.ToStr(form.DefaultKeepEmailPrivate))
+	cfg.Section("service").Key("DEFAULT_ALLOW_CREATE_ORGANIZATION").SetValue(com.ToStr(form.DefaultAllowCreateOrganization))
 	cfg.Section("service").Key("NO_REPLY_ADDRESS").SetValue(com.ToStr(form.NoReplyAddress))
 
 	cfg.Section("").Key("RUN_MODE").SetValue("prod")

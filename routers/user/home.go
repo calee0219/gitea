@@ -53,40 +53,72 @@ func getDashboardContextUser(ctx *context.Context) *models.User {
 	return ctxUser
 }
 
-// retrieveFeeds loads feeds from database by given context user.
-// The user could be organization so it is not always the logged in user,
-// which is why we have to explicitly pass the context user ID.
-func retrieveFeeds(ctx *context.Context, ctxUser *models.User, userID, offset int64, isProfile bool) {
-	actions, err := models.GetFeeds(ctxUser, userID, offset, isProfile)
+// retrieveFeeds loads feeds for the specified user
+func retrieveFeeds(ctx *context.Context, user *models.User, includePrivate, isProfile bool, includeDeletedComments bool) {
+	var requestingID int64
+	if ctx.User != nil {
+		requestingID = ctx.User.ID
+	}
+	actions, err := models.GetFeeds(models.GetFeedsOptions{
+		RequestedUser:    user,
+		RequestingUserID: requestingID,
+		IncludePrivate:   includePrivate,
+		OnlyPerformedBy:  isProfile,
+		IncludeDeleted:   includeDeletedComments,
+	})
 	if err != nil {
 		ctx.Handle(500, "GetFeeds", err)
 		return
 	}
 
-	// Check access of private repositories.
-	feeds := make([]*models.Action, 0, len(actions))
-	unameAvatars := map[string]string{
-		ctxUser.Name: ctxUser.RelAvatarLink(),
+	userCache := map[int64]*models.User{user.ID: user}
+	if ctx.User != nil {
+		userCache[ctx.User.ID] = ctx.User
 	}
+	repoCache := map[int64]*models.Repository{}
 	for _, act := range actions {
 		// Cache results to reduce queries.
-		_, ok := unameAvatars[act.ActUserName]
+		u, ok := userCache[act.ActUserID]
 		if !ok {
-			u, err := models.GetUserByName(act.ActUserName)
+			u, err = models.GetUserByID(act.ActUserID)
 			if err != nil {
 				if models.IsErrUserNotExist(err) {
 					continue
 				}
-				ctx.Handle(500, "GetUserByName", err)
+				ctx.Handle(500, "GetUserByID", err)
 				return
 			}
-			unameAvatars[act.ActUserName] = u.RelAvatarLink()
+			userCache[act.ActUserID] = u
 		}
+		act.ActUser = u
 
-		act.ActAvatar = unameAvatars[act.ActUserName]
-		feeds = append(feeds, act)
+		repo, ok := repoCache[act.RepoID]
+		if !ok {
+			repo, err = models.GetRepositoryByID(act.RepoID)
+			if err != nil {
+				if models.IsErrRepoNotExist(err) {
+					continue
+				}
+				ctx.Handle(500, "GetRepositoryByID", err)
+				return
+			}
+		}
+		act.Repo = repo
+
+		repoOwner, ok := userCache[repo.OwnerID]
+		if !ok {
+			repoOwner, err = models.GetUserByID(repo.OwnerID)
+			if err != nil {
+				if models.IsErrUserNotExist(err) {
+					continue
+				}
+				ctx.Handle(500, "GetUserByID", err)
+				return
+			}
+		}
+		repo.Owner = repoOwner
 	}
-	ctx.Data["Feeds"] = feeds
+	ctx.Data["Feeds"] = actions
 }
 
 // Dashboard render the dashborad page
@@ -155,7 +187,7 @@ func Dashboard(ctx *context.Context) {
 	ctx.Data["MirrorCount"] = len(mirrors)
 	ctx.Data["Mirrors"] = mirrors
 
-	retrieveFeeds(ctx, ctxUser, ctx.User.ID, 0, false)
+	retrieveFeeds(ctx, ctxUser, true, false, false)
 	if ctx.Written() {
 		return
 	}

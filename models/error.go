@@ -260,6 +260,36 @@ func (err ErrKeyNameAlreadyUsed) Error() string {
 	return fmt.Sprintf("public key already exists [owner_id: %d, name: %s]", err.OwnerID, err.Name)
 }
 
+// ErrGPGEmailNotFound represents a "ErrGPGEmailNotFound" kind of error.
+type ErrGPGEmailNotFound struct {
+	Email string
+}
+
+// IsErrGPGEmailNotFound checks if an error is a ErrGPGEmailNotFound.
+func IsErrGPGEmailNotFound(err error) bool {
+	_, ok := err.(ErrGPGEmailNotFound)
+	return ok
+}
+
+func (err ErrGPGEmailNotFound) Error() string {
+	return fmt.Sprintf("failed to found email or is not confirmed : %s", err.Email)
+}
+
+// ErrGPGKeyParsing represents a "ErrGPGKeyParsing" kind of error.
+type ErrGPGKeyParsing struct {
+	ParseError error
+}
+
+// IsErrGPGKeyParsing checks if an error is a ErrGPGKeyParsing.
+func IsErrGPGKeyParsing(err error) bool {
+	_, ok := err.(ErrGPGKeyParsing)
+	return ok
+}
+
+func (err ErrGPGKeyParsing) Error() string {
+	return fmt.Sprintf("failed to parse gpg key %s", err.ParseError.Error())
+}
+
 // ErrGPGKeyNotExist represents a "GPGKeyNotExist" kind of error.
 type ErrGPGKeyNotExist struct {
 	ID int64
@@ -417,6 +447,22 @@ func (err ErrAccessTokenEmpty) Error() string {
 // /    |    \  | \/ /_/  > __ \|   |  \  |/    /  / __ \|  | |  (  <_> )   |  \
 // \_______  /__|  \___  (____  /___|  /__/_____ \(____  /__| |__|\____/|___|  /
 //         \/     /_____/     \/     \/         \/     \/                    \/
+
+// ErrOrgNotExist represents a "OrgNotExist" kind of error.
+type ErrOrgNotExist struct {
+	ID   int64
+	Name string
+}
+
+// IsErrOrgNotExist checks if an error is a ErrOrgNotExist.
+func IsErrOrgNotExist(err error) bool {
+	_, ok := err.(ErrOrgNotExist)
+	return ok
+}
+
+func (err ErrOrgNotExist) Error() string {
+	return fmt.Sprintf("org does not exist [id: %d, name: %s]", err.ID, err.Name)
+}
 
 // ErrLastOrgOwner represents a "LastOrgOwner" kind of error.
 type ErrLastOrgOwner struct {

@@ -23,6 +23,7 @@
 					</div>
 				</div>
 				<a href="{{AppSubUrl}}/assets/librejs/librejs.html" data-jslicense="1">Javascript licenses</a>
+				<a href="{{AppSubUrl}}/swagger">API</a>
 				<a target="_blank" rel="noopener" href="https://gitea.io">{{.i18n.Tr "website"}}</a>
 				{{if (or .ShowFooterVersion .PageIsAdmin)}}<span class="version">{{GoVer}}</span>{{end}}
 			</div>
@@ -50,7 +51,7 @@
 
 <!-- Third-party libraries -->
 {{if .RequireHighlightJS}}
-	<script src="{{AppSubUrl}}/plugins/highlight-9.6.0/highlight.pack.js"></script>
+	<script src="{{AppSubUrl}}/plugins/highlight-9.11.0/highlight.pack.js"></script>
 {{end}}
 {{if .RequireMinicolors}}
 	<script src="{{AppSubUrl}}/plugins/jquery.minicolors-2.2.3/jquery.minicolors.min.js"></script>
@@ -64,5 +65,6 @@
 	<script src="{{AppSubUrl}}/js/libs/autolink.js"></script>
 	<script src="{{AppSubUrl}}/js/libs/emojify-1.1.0.min.js"></script>
 	<script src="{{AppSubUrl}}/js/libs/clipboard-1.5.9.min.js"></script>
+	<script src="{{AppSubUrl}}/js/libs/vue.min.js"></script>
 </body>
 </html>

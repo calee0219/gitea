@@ -5,10 +5,8 @@
 package repo
 
 import (
-	"errors"
 	"fmt"
 
-	"code.gitea.io/git"
 	"code.gitea.io/gitea/models"
 	"code.gitea.io/gitea/modules/auth"
 	"code.gitea.io/gitea/modules/base"
@@ -16,6 +14,7 @@ import (
 	"code.gitea.io/gitea/modules/log"
 	"code.gitea.io/gitea/modules/markdown"
 	"code.gitea.io/gitea/modules/setting"
+
 	"github.com/Unknwon/paginater"
 )
 
@@ -66,37 +65,19 @@ func Releases(ctx *context.Context) {
 		limit = 10
 	}
 
-	rawTags, err := ctx.Repo.GitRepo.GetTagInfos(git.TagOption{})
+	opts := models.FindReleasesOptions{
+		IncludeDrafts: ctx.Repo.IsWriter(),
+	}
+
+	releases, err := models.GetReleasesByRepoID(ctx.Repo.Repository.ID, opts, page, limit)
 	if err != nil {
-		ctx.Handle(500, "GetTags", err)
+		ctx.Handle(500, "GetReleasesByRepoID", err)
 		return
 	}
 
-	if len(rawTags) == 0 {
-		ctx.HTML(200, tplReleases)
-		return
-	}
-
-	if len(rawTags) <= (page-1)*limit {
-		ctx.Handle(500, "Releases", errors.New("no more pages"))
-		return
-	}
-
-	var tags []*git.Tag
-	if page*limit > len(rawTags) {
-		tags = rawTags[(page-1)*limit:]
-	} else {
-		tags = rawTags[(page-1)*limit : page*limit]
-	}
-
-	var tagNames []string
-	for _, t := range tags {
-		tagNames = append(tagNames, t.Name)
-	}
-
-	releases, err := models.GetReleasesByRepoIDAndNames(ctx.Repo.Repository.ID, tagNames)
+	count, err := models.GetReleaseCountByRepoID(ctx.Repo.Repository.ID, opts)
 	if err != nil {
-		ctx.Handle(500, "GetReleasesByRepoIDAndNames", err)
+		ctx.Handle(500, "GetReleaseCountByRepoID", err)
 		return
 	}
 
@@ -106,61 +87,37 @@ func Releases(ctx *context.Context) {
 		return
 	}
 
-	// Temproray cache commits count of used branches to speed up.
+	// Temporary cache commits count of used branches to speed up.
 	countCache := make(map[string]int64)
-	var cacheUsers = make(map[int64]*models.User)
+	cacheUsers := make(map[int64]*models.User)
+	if ctx.User != nil {
+		cacheUsers[ctx.User.ID] = ctx.User
+	}
 	var ok bool
-	releaseTags := make([]*models.Release, len(tags))
-	for i, rawTag := range tags {
-		for _, r := range releases {
-			if r.IsDraft && !ctx.Repo.IsOwner() {
-				continue
-			}
-			if r.TagName == rawTag.Name {
-				if r.Publisher, ok = cacheUsers[r.PublisherID]; !ok {
-					r.Publisher, err = models.GetUserByID(r.PublisherID)
-					if err != nil {
-						if models.IsErrUserNotExist(err) {
-							r.Publisher = models.NewGhostUser()
-						} else {
-							ctx.Handle(500, "GetUserByID", err)
-							return
-						}
-					}
-					cacheUsers[r.PublisherID] = r.Publisher
-				}
 
-				if err := calReleaseNumCommitsBehind(ctx.Repo, r, countCache); err != nil {
-					ctx.Handle(500, "calReleaseNumCommitsBehind", err)
+	for _, r := range releases {
+		if r.Publisher, ok = cacheUsers[r.PublisherID]; !ok {
+			r.Publisher, err = models.GetUserByID(r.PublisherID)
+			if err != nil {
+				if models.IsErrUserNotExist(err) {
+					r.Publisher = models.NewGhostUser()
+				} else {
+					ctx.Handle(500, "GetUserByID", err)
 					return
 				}
-
-				r.Note = markdown.RenderString(r.Note, ctx.Repo.RepoLink, ctx.Repo.Repository.ComposeMetas())
-				releaseTags[i] = r
-				break
 			}
+			cacheUsers[r.PublisherID] = r.Publisher
 		}
-
-		if releaseTags[i] == nil {
-			releaseTags[i] = &models.Release{
-				Title:   rawTag.Name,
-				TagName: rawTag.Name,
-				Sha1:    rawTag.Object.String(),
-				Note:    rawTag.Message,
-			}
-
-			releaseTags[i].NumCommits, err = git.CommitsCount(ctx.Repo.GitRepo.Path, rawTag.Object.String())
-			if err != nil {
-				ctx.Handle(500, "CommitsCount", err)
-				return
-			}
-			releaseTags[i].NumCommitsBehind = ctx.Repo.CommitsCount - releaseTags[i].NumCommits
+		if err := calReleaseNumCommitsBehind(ctx.Repo, r, countCache); err != nil {
+			ctx.Handle(500, "calReleaseNumCommitsBehind", err)
+			return
 		}
+		r.Note = markdown.RenderString(r.Note, ctx.Repo.RepoLink, ctx.Repo.Repository.ComposeMetas())
 	}
 
-	pager := paginater.New(len(rawTags), limit, page, 5)
+	pager := paginater.New(int(count), limit, page, 5)
 	ctx.Data["Page"] = pager
-	ctx.Data["Releases"] = releaseTags
+	ctx.Data["Releases"] = releases
 	ctx.HTML(200, tplReleases)
 }
 

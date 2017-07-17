@@ -136,7 +136,10 @@ func (repo *Repository) UpdateRepoFile(doer *User, opts UpdateRepoFileOptions) (
 		Message:   opts.Message,
 	}); err != nil {
 		return fmt.Errorf("CommitChanges: %v", err)
-	} else if err = git.Push(localPath, "origin", opts.NewBranch); err != nil {
+	} else if err = git.Push(localPath, git.PushOptions{
+		Remote: "origin",
+		Branch: opts.NewBranch,
+	}); err != nil {
 		return fmt.Errorf("git push origin %s: %v", opts.NewBranch, err)
 	}
 
@@ -273,7 +276,10 @@ func (repo *Repository) DeleteRepoFile(doer *User, opts DeleteRepoFileOptions) (
 		Message:   opts.Message,
 	}); err != nil {
 		return fmt.Errorf("CommitChanges: %v", err)
-	} else if err = git.Push(localPath, "origin", opts.NewBranch); err != nil {
+	} else if err = git.Push(localPath, git.PushOptions{
+		Remote: "origin",
+		Branch: opts.NewBranch,
+	}); err != nil {
 		return fmt.Errorf("git push origin %s: %v", opts.NewBranch, err)
 	}
 
@@ -395,7 +401,7 @@ func DeleteUploads(uploads ...*Upload) (err error) {
 	}
 
 	sess := x.NewSession()
-	defer sessionRelease(sess)
+	defer sess.Close()
 	if err = sess.Begin(); err != nil {
 		return err
 	}
@@ -509,7 +515,10 @@ func (repo *Repository) UploadRepoFiles(doer *User, opts UploadRepoFileOptions) 
 		Message:   opts.Message,
 	}); err != nil {
 		return fmt.Errorf("CommitChanges: %v", err)
-	} else if err = git.Push(localPath, "origin", opts.NewBranch); err != nil {
+	} else if err = git.Push(localPath, git.PushOptions{
+		Remote: "origin",
+		Branch: opts.NewBranch,
+	}); err != nil {
 		return fmt.Errorf("git push origin %s: %v", opts.NewBranch, err)
 	}
 

@@ -189,12 +189,6 @@ function initCommentForm() {
         var $list = $('.ui' + select_id + '.list');
         var hasUpdateAction = $menu.data('action') == 'update';
 
-        $(select_id).dropdown('setting', 'onHide', function(){
-            if (hasUpdateAction) {
-                location.reload();
-            }
-        });
-
         $menu.find('.item:not(.no-select)').click(function () {
             $(this).parent().find('.item').each(function () {
                 $(this).removeClass('selected active')
@@ -206,7 +200,8 @@ function initCommentForm() {
                     $menu.data('update-url'),
                     "",
                     $menu.data('issue-id'),
-                    $(this).data('id')
+                    $(this).data('id'),
+                    function() { location.reload(); }
                 );
             }
             switch (input_id) {
@@ -232,7 +227,8 @@ function initCommentForm() {
                     $menu.data('update-url'),
                     "",
                     $menu.data('issue-id'),
-                    $(this).data('id')
+                    $(this).data('id'),
+                    function() { location.reload(); }
                 );
             }
 
@@ -661,6 +657,18 @@ function initRepositoryCollaboration() {
     });
 }
 
+function initTeamSettings() {
+    // Change team access mode
+    $('.organization.new.team input[name=permission]').change(function () {
+        var val = $('input[name=permission]:checked', '.organization.new.team').val()
+        if (val === 'admin') {
+            $('.organization.new.team .team-units').hide();
+        } else {
+            $('.organization.new.team .team-units').show();
+        }
+    });
+}
+
 function initWikiForm() {
     var $editArea = $('.repository.wiki textarea#edit_area');
     if ($editArea.length > 0) {
@@ -1047,6 +1055,56 @@ function initAdmin() {
         }
     }
 
+    function onOAuth2Change() {
+        $('.open_id_connect_auto_discovery_url, .oauth2_use_custom_url').hide();
+        $('.open_id_connect_auto_discovery_url input[required]').removeAttr('required');
+
+        var provider = $('#oauth2_provider').val();
+        switch (provider) {
+            case 'github':
+            case 'gitlab':
+                $('.oauth2_use_custom_url').show();
+                break;
+            case 'openidConnect':
+                $('.open_id_connect_auto_discovery_url input').attr('required', 'required');
+                $('.open_id_connect_auto_discovery_url').show();
+                break;
+        }
+        onOAuth2UseCustomURLChange();
+    }
+
+    function onOAuth2UseCustomURLChange() {
+        var provider = $('#oauth2_provider').val();
+        $('.oauth2_use_custom_url_field').hide();
+        $('.oauth2_use_custom_url_field input[required]').removeAttr('required');
+
+        if ($('#oauth2_use_custom_url').is(':checked')) {
+            if (!$('#oauth2_token_url').val()) {
+                $('#oauth2_token_url').val($('#' + provider + '_token_url').val());
+            }
+            if (!$('#oauth2_auth_url').val()) {
+                $('#oauth2_auth_url').val($('#' + provider + '_auth_url').val());
+            }
+            if (!$('#oauth2_profile_url').val()) {
+                $('#oauth2_profile_url').val($('#' + provider + '_profile_url').val());
+            }
+            if (!$('#oauth2_email_url').val()) {
+                $('#oauth2_email_url').val($('#' + provider + '_email_url').val());
+            }
+            switch (provider) {
+                case 'github':
+                    $('.oauth2_token_url input, .oauth2_auth_url input, .oauth2_profile_url input, .oauth2_email_url input').attr('required', 'required');
+                    $('.oauth2_token_url, .oauth2_auth_url, .oauth2_profile_url, .oauth2_email_url').show();
+                    break;
+                case 'gitlab':
+                    $('.oauth2_token_url input, .oauth2_auth_url input, .oauth2_profile_url input').attr('required', 'required');
+                    $('.oauth2_token_url, .oauth2_auth_url, .oauth2_profile_url').show();
+                    $('#oauth2_email_url').val('');
+                    break;
+            }
+        }
+    }
+
     // New authentication
     if ($('.admin.new.authentication').length > 0) {
         $('#auth_type').change(function () {
@@ -1075,22 +1133,28 @@ function initAdmin() {
                     break;
                 case '6':     // OAuth2
                     $('.oauth2').show();
-                    $('.oauth2 input').attr('required', 'required');
+                    $('.oauth2 div.required:not(.oauth2_use_custom_url,.oauth2_use_custom_url_field,.open_id_connect_auto_discovery_url) input').attr('required', 'required');
+                    onOAuth2Change();
                     break;
             }
-
             if (authType == '2' || authType == '5') {
                 onSecurityProtocolChange()
             }
         });
         $('#auth_type').change();
-        $('#security_protocol').change(onSecurityProtocolChange)
+        $('#security_protocol').change(onSecurityProtocolChange);
+        $('#oauth2_provider').change(onOAuth2Change);
+        $('#oauth2_use_custom_url').change(onOAuth2UseCustomURLChange);
     }
     // Edit authentication
     if ($('.admin.edit.authentication').length > 0) {
         var authType = $('#auth_type').val();
         if (authType == '2' || authType == '5') {
             $('#security_protocol').change(onSecurityProtocolChange);
+        } else if (authType == '6') {
+            $('#oauth2_provider').change(onOAuth2Change);
+            $('#oauth2_use_custom_url').change(onOAuth2UseCustomURLChange);
+            onOAuth2Change();
         }
     }
 
@@ -1408,7 +1472,11 @@ $(document).ready(function () {
     // Helpers.
     $('.delete-button').click(function () {
         var $this = $(this);
-        $('.delete.modal').modal({
+        var filter = "";
+        if ($this.attr("id")) {
+          filter += "#"+$this.attr("id")
+        }
+        $('.delete.modal'+filter).modal({
             closable: false,
             onApprove: function () {
                 if ($this.data('type') == "form") {
@@ -1500,6 +1568,8 @@ $(document).ready(function () {
     initWebhook();
     initAdmin();
     initCodeView();
+    initDashboardSearch();
+    initTeamSettings();
 
     // Repo clone url.
     if ($('#repo-clone-url').length > 0) {
@@ -1575,13 +1645,6 @@ $(function () {
     if ($('.user.signin').length > 0) return;
     $('form').areYouSure();
 
-    $("#search_repo").on('change paste keyup',function(){
-        var value = $(this).val();
-        $.map($('.search-list li'), function(i) {
-            $(i).css("display", (value.trim().length == 0 || $(i).attr("data-title").trim().toLowerCase().indexOf(value.trim().toLowerCase()) > -1) ? "" : "none");
-        });
-    });
-
     // Parse SSH Key
     $("#ssh-key-content").on('change paste keyup',function(){
         var arrays = $(this).val().split(" ");
@@ -1591,3 +1654,64 @@ $(function () {
         }
     });
 });
+
+function initDashboardSearch() {
+    var el = document.getElementById('dashboard-repo-search');
+    if (!el) {
+        return;
+    }
+
+    new Vue({
+        delimiters: ['${', '}'],
+        el: el,
+
+        data: {
+            tab: 'repos',
+            repos: [],
+            searchQuery: '',
+            suburl: document.querySelector('meta[name=_suburl]').content,
+            uid: document.querySelector('meta[name=_context_uid]').content
+        },
+
+        mounted: function() {
+            this.searchRepos();
+
+            Vue.nextTick(function() {
+                document.querySelector('#search_repo').focus();
+            });
+        },
+
+        methods: {
+            changeTab: function(t) {
+                this.tab = t;
+            },
+
+            searchKeyUp: function() {
+                this.searchRepos();
+            },
+
+            searchRepos: function() {
+                var self = this;
+                $.getJSON(this.searchURL(), function(result) {
+                    self.repos = result.data;
+                });
+            },
+
+            searchURL: function() {
+                return this.suburl + '/api/v1/repos/search?uid=' + this.uid + '&q=' + this.searchQuery;
+            },
+
+            repoClass: function(repo) {
+                if (repo.fork) {
+                    return 'octicon octicon-repo-forked';
+                } else if (repo.mirror) {
+                    return 'octicon octicon-repo-clone';
+                } else if (repo.private) {
+                    return 'octicon octicon-lock';
+                } else {
+                    return 'octicon octicon-repo';
+                }
+            }
+        }
+    });
+}

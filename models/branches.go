@@ -63,6 +63,23 @@ func (repo *Repository) GetProtectedBranches() ([]*ProtectedBranch, error) {
 	return protectedBranches, x.Find(&protectedBranches, &ProtectedBranch{RepoID: repo.ID})
 }
 
+// IsProtectedBranch checks if branch is protected
+func (repo *Repository) IsProtectedBranch(branchName string) (bool, error) {
+	protectedBranch := &ProtectedBranch{
+		RepoID:     repo.ID,
+		BranchName: branchName,
+	}
+
+	has, err := x.Get(protectedBranch)
+	if err != nil {
+		return true, err
+	} else if has {
+		return true, nil
+	}
+
+	return false, nil
+}
+
 // AddProtectedBranch add protection to branch
 func (repo *Repository) AddProtectedBranch(branchName string, canPush bool) error {
 	protectedBranch := &ProtectedBranch{
@@ -78,7 +95,7 @@ func (repo *Repository) AddProtectedBranch(branchName string, canPush bool) erro
 	}
 
 	sess := x.NewSession()
-	defer sessionRelease(sess)
+	defer sess.Close()
 	if err = sess.Begin(); err != nil {
 		return err
 	}
@@ -109,7 +126,7 @@ func (repo *Repository) ChangeProtectedBranch(id int64, canPush bool) error {
 	ProtectedBranch.CanPush = canPush
 
 	sess := x.NewSession()
-	defer sessionRelease(sess)
+	defer sess.Close()
 	if err = sess.Begin(); err != nil {
 		return err
 	}
@@ -129,7 +146,7 @@ func (repo *Repository) DeleteProtectedBranch(id int64) (err error) {
 	}
 
 	sess := x.NewSession()
-	defer sessionRelease(sess)
+	defer sess.Close()
 	if err = sess.Begin(); err != nil {
 		return err
 	}

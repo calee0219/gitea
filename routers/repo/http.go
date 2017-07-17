@@ -77,8 +77,10 @@ func HTTP(ctx *context.Context) {
 	}
 
 	isWiki := false
+	var unitType = models.UnitTypeCode
 	if strings.HasSuffix(reponame, ".wiki") {
 		isWiki = true
+		unitType = models.UnitTypeWiki
 		reponame = reponame[:len(reponame)-5]
 	}
 
@@ -204,10 +206,15 @@ func HTTP(ctx *context.Context) {
 			}
 		}
 
+		if !repo.CheckUnitUser(authUser.ID, authUser.IsAdmin, unitType) {
+			ctx.HandleText(http.StatusForbidden, fmt.Sprintf("User %s does not have allowed access to repository %s 's code",
+				authUser.Name, repo.RepoPath()))
+			return
+		}
+
 		environ = []string{
 			models.EnvRepoUsername + "=" + username,
 			models.EnvRepoName + "=" + reponame,
-			models.EnvRepoUserSalt + "=" + repoUser.Salt,
 			models.EnvPusherName + "=" + authUser.Name,
 			models.EnvPusherID + fmt.Sprintf("=%d", authUser.ID),
 			models.ProtectedBranchRepoID + fmt.Sprintf("=%d", repo.ID),
@@ -374,7 +381,6 @@ func serviceRPC(h serviceHandler, service string) {
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		log.GitLogger.Error(2, "fail to serve RPC(%s): %v - %v", service, err, stderr)
-		h.w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 }

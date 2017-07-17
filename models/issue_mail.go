@@ -22,7 +22,7 @@ func (issue *Issue) mailSubject() string {
 // This function sends two list of emails:
 // 1. Repository watchers and users who are participated in comments.
 // 2. Users who are not in 1. but get mentioned in current issue/comment.
-func mailIssueCommentToParticipants(issue *Issue, doer *User, mentions []string) error {
+func mailIssueCommentToParticipants(issue *Issue, doer *User, comment *Comment, mentions []string) error {
 	if !setting.Service.EnableNotifyMail {
 		return nil
 	}
@@ -40,6 +40,11 @@ func mailIssueCommentToParticipants(issue *Issue, doer *User, mentions []string)
 	// even if we have duplicated in watchers, can be safely filtered out.
 	if issue.PosterID != doer.ID {
 		participants = append(participants, issue.Poster)
+	}
+
+	// Assignee must receive any communications
+	if issue.Assignee != nil && issue.AssigneeID > 0 && issue.AssigneeID != doer.ID {
+		participants = append(participants, issue.Assignee)
 	}
 
 	tos := make([]string, 0, len(watchers)) // List of email addresses.
@@ -70,7 +75,8 @@ func mailIssueCommentToParticipants(issue *Issue, doer *User, mentions []string)
 		tos = append(tos, participants[i].Email)
 		names = append(names, participants[i].Name)
 	}
-	SendIssueCommentMail(issue, doer, tos)
+
+	SendIssueCommentMail(issue, doer, comment, tos)
 
 	// Mail mentioned people and exclude watchers.
 	names = append(names, doer.Name)
@@ -82,7 +88,7 @@ func mailIssueCommentToParticipants(issue *Issue, doer *User, mentions []string)
 
 		tos = append(tos, mentions[i])
 	}
-	SendIssueMentionMail(issue, doer, GetUserEmailsByNames(tos))
+	SendIssueMentionMail(issue, doer, comment, GetUserEmailsByNames(tos))
 
 	return nil
 }
@@ -95,7 +101,7 @@ func (issue *Issue) MailParticipants() (err error) {
 		return fmt.Errorf("UpdateIssueMentions [%d]: %v", issue.ID, err)
 	}
 
-	if err = mailIssueCommentToParticipants(issue, issue.Poster, mentions); err != nil {
+	if err = mailIssueCommentToParticipants(issue, issue.Poster, nil, mentions); err != nil {
 		log.Error(4, "mailIssueCommentToParticipants: %v", err)
 	}
 

@@ -24,6 +24,7 @@ import (
 
 var (
 	errMissingIssueNumber = errors.New("No issue number specified")
+	errInvalidIssueNumber = errors.New("Invalid issue number")
 )
 
 // Issue represents an issue or pull request of repository.
@@ -131,6 +132,22 @@ func (issue *Issue) loadPoster(e Engine) (err error) {
 	return
 }
 
+func (issue *Issue) loadAssignee(e Engine) (err error) {
+	if issue.Assignee == nil && issue.AssigneeID > 0 {
+		issue.Assignee, err = getUserByID(e, issue.AssigneeID)
+		if err != nil {
+			issue.AssigneeID = -1
+			issue.Assignee = NewGhostUser()
+			if !IsErrUserNotExist(err) {
+				return fmt.Errorf("getUserByID.(assignee) [%d]: %v", issue.AssigneeID, err)
+			}
+			err = nil
+			return
+		}
+	}
+	return
+}
+
 func (issue *Issue) loadAttributes(e Engine) (err error) {
 	if err = issue.loadRepo(e); err != nil {
 		return
@@ -151,11 +168,8 @@ func (issue *Issue) loadAttributes(e Engine) (err error) {
 		}
 	}
 
-	if issue.Assignee == nil && issue.AssigneeID > 0 {
-		issue.Assignee, err = getUserByID(e, issue.AssigneeID)
-		if err != nil {
-			return fmt.Errorf("getUserByID.(assignee) [%d]: %v", issue.AssigneeID, err)
-		}
+	if err = issue.loadAssignee(e); err != nil {
+		return
 	}
 
 	if issue.IsPull && issue.PullRequest == nil {
@@ -174,7 +188,10 @@ func (issue *Issue) loadAttributes(e Engine) (err error) {
 	}
 
 	if issue.Comments == nil {
-		issue.Comments, err = getCommentsByIssueID(e, issue.ID)
+		issue.Comments, err = findComments(e, FindCommentsOptions{
+			IssueID: issue.ID,
+			Type:    CommentTypeUnknown,
+		})
 		if err != nil {
 			return fmt.Errorf("getCommentsByIssueID [%d]: %v", issue.ID, err)
 		}
@@ -406,7 +423,7 @@ func (issue *Issue) clearLabels(e *xorm.Session, doer *User) (err error) {
 // Triggers appropriate WebHooks, if any.
 func (issue *Issue) ClearLabels(doer *User) (err error) {
 	sess := x.NewSession()
-	defer sessionRelease(sess)
+	defer sess.Close()
 	if err = sess.Begin(); err != nil {
 		return err
 	}
@@ -470,7 +487,7 @@ func (ts labelSorter) Swap(i, j int) {
 // Triggers appropriate WebHooks, if any.
 func (issue *Issue) ReplaceLabels(labels []*Label, doer *User) (err error) {
 	sess := x.NewSession()
-	defer sessionRelease(sess)
+	defer sess.Close()
 	if err = sess.Begin(); err != nil {
 		return err
 	}
@@ -598,7 +615,7 @@ func (issue *Issue) changeStatus(e *xorm.Session, doer *User, repo *Repository, 
 // ChangeStatus changes issue status to open or closed.
 func (issue *Issue) ChangeStatus(doer *User, repo *Repository, isClosed bool) (err error) {
 	sess := x.NewSession()
-	defer sessionRelease(sess)
+	defer sess.Close()
 	if err = sess.Begin(); err != nil {
 		return err
 	}
@@ -899,7 +916,7 @@ func newIssue(e *xorm.Session, doer *User, opts NewIssueOptions) (err error) {
 // NewIssue creates new issue with labels for repository.
 func NewIssue(repo *Repository, issue *Issue, labelIDs []int64, uuids []string) (err error) {
 	sess := x.NewSession()
-	defer sessionRelease(sess)
+	defer sess.Close()
 	if err = sess.Begin(); err != nil {
 		return err
 	}
@@ -918,14 +935,13 @@ func NewIssue(repo *Repository, issue *Issue, labelIDs []int64, uuids []string) 
 	}
 
 	if err = NotifyWatchers(&Action{
-		ActUserID:    issue.Poster.ID,
-		ActUserName:  issue.Poster.Name,
-		OpType:       ActionCreateIssue,
-		Content:      fmt.Sprintf("%d|%s", issue.Index, issue.Title),
-		RepoID:       repo.ID,
-		RepoUserName: repo.Owner.Name,
-		RepoName:     repo.Name,
-		IsPrivate:    repo.IsPrivate,
+		ActUserID: issue.Poster.ID,
+		ActUser:   issue.Poster,
+		OpType:    ActionCreateIssue,
+		Content:   fmt.Sprintf("%d|%s", issue.Index, issue.Title),
+		RepoID:    repo.ID,
+		Repo:      repo,
+		IsPrivate: repo.IsPrivate,
 	}); err != nil {
 		log.Error(4, "NotifyWatchers: %v", err)
 	}
@@ -946,7 +962,7 @@ func GetIssueByRef(ref string) (*Issue, error) {
 
 	index, err := com.StrTo(ref[n+1:]).Int64()
 	if err != nil {
-		return nil, err
+		return nil, errInvalidIssueNumber
 	}
 
 	repo, err := GetRepositoryByRef(ref[:n])
@@ -994,7 +1010,7 @@ func getIssueByID(e Engine, id int64) (*Issue, error) {
 	} else if !has {
 		return nil, ErrIssueNotExist{id, 0, 0}
 	}
-	return issue, issue.LoadAttributes()
+	return issue, issue.loadAttributes(e)
 }
 
 // GetIssueByID returns an issue by given ID.
@@ -1224,7 +1240,6 @@ func parseCountResult(results []map[string][]byte) int64 {
 
 // IssueStatsOptions contains parameters accepted by GetIssueStats.
 type IssueStatsOptions struct {
-	FilterMode  int
 	RepoID      int64
 	Labels      string
 	MilestoneID int64
@@ -1242,7 +1257,7 @@ func GetIssueStats(opts *IssueStatsOptions) (*IssueStats, error) {
 	countSession := func(opts *IssueStatsOptions) *xorm.Session {
 		sess := x.
 			Where("issue.repo_id = ?", opts.RepoID).
-			And("is_pull = ?", opts.IsPull)
+			And("issue.is_pull = ?", opts.IsPull)
 
 		if len(opts.IssueIDs) > 0 {
 			sess.In("issue.id", opts.IssueIDs)
@@ -1253,8 +1268,8 @@ func GetIssueStats(opts *IssueStatsOptions) (*IssueStats, error) {
 			if err != nil {
 				log.Warn("Malformed Labels argument: %s", opts.Labels)
 			} else if len(labelIDs) > 0 {
-				sess.Join("INNER", "issue_label", "issue.id = issue_id").
-					In("label_id", labelIDs)
+				sess.Join("INNER", "issue_label", "issue.id = issue_label.issue_id").
+					In("issue_label.label_id", labelIDs)
 			}
 		}
 
@@ -1263,11 +1278,11 @@ func GetIssueStats(opts *IssueStatsOptions) (*IssueStats, error) {
 		}
 
 		if opts.AssigneeID > 0 {
-			sess.And("assignee_id = ?", opts.AssigneeID)
+			sess.And("issue.assignee_id = ?", opts.AssigneeID)
 		}
 
 		if opts.PosterID > 0 {
-			sess.And("poster_id = ?", opts.PosterID)
+			sess.And("issue.poster_id = ?", opts.PosterID)
 		}
 
 		if opts.MentionedID > 0 {
@@ -1280,40 +1295,15 @@ func GetIssueStats(opts *IssueStatsOptions) (*IssueStats, error) {
 	}
 
 	var err error
-	switch opts.FilterMode {
-	case FilterModeAll, FilterModeAssign:
-		stats.OpenCount, err = countSession(opts).
-			And("is_closed = ?", false).
-			Count(new(Issue))
-
-		stats.ClosedCount, err = countSession(opts).
-			And("is_closed = ?", true).
-			Count(new(Issue))
-	case FilterModeCreate:
-		stats.OpenCount, err = countSession(opts).
-			And("poster_id = ?", opts.PosterID).
-			And("is_closed = ?", false).
-			Count(new(Issue))
-
-		stats.ClosedCount, err = countSession(opts).
-			And("poster_id = ?", opts.PosterID).
-			And("is_closed = ?", true).
-			Count(new(Issue))
-	case FilterModeMention:
-		stats.OpenCount, err = countSession(opts).
-			Join("INNER", "issue_user", "issue.id = issue_user.issue_id").
-			And("issue_user.uid = ?", opts.PosterID).
-			And("issue_user.is_mentioned = ?", true).
-			And("issue.is_closed = ?", false).
-			Count(new(Issue))
-
-		stats.ClosedCount, err = countSession(opts).
-			Join("INNER", "issue_user", "issue.id = issue_user.issue_id").
-			And("issue_user.uid = ?", opts.PosterID).
-			And("issue_user.is_mentioned = ?", true).
-			And("issue.is_closed = ?", true).
-			Count(new(Issue))
+	stats.OpenCount, err = countSession(opts).
+		And("issue.is_closed = ?", false).
+		Count(new(Issue))
+	if err != nil {
+		return stats, err
 	}
+	stats.ClosedCount, err = countSession(opts).
+		And("issue.is_closed = ?", true).
+		Count(new(Issue))
 	return stats, err
 }
 

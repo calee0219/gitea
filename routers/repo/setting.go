@@ -480,9 +480,11 @@ func ProtectedBranchPost(ctx *context.Context) {
 			return
 		}
 
-		branch := strings.ToLower(ctx.Query("branch"))
-		if ctx.Repo.GitRepo.IsBranchExist(branch) &&
-			repo.DefaultBranch != branch {
+		branch := ctx.Query("branch")
+		if !ctx.Repo.GitRepo.IsBranchExist(branch) {
+			ctx.Status(404)
+			return
+		} else if repo.DefaultBranch != branch {
 			repo.DefaultBranch = branch
 			if err := ctx.Repo.GitRepo.SetDefaultBranch(branch); err != nil {
 				if !git.IsErrUnsupportedVersion(err) {
@@ -664,7 +666,7 @@ func DeployKeys(ctx *context.Context) {
 }
 
 // DeployKeysPost response for adding a deploy key of a repository
-func DeployKeysPost(ctx *context.Context, form auth.AddSSHKeyForm) {
+func DeployKeysPost(ctx *context.Context, form auth.AddKeyForm) {
 	ctx.Data["Title"] = ctx.Tr("repo.settings.deploy_keys")
 	ctx.Data["PageIsSettingsKeys"] = true
 

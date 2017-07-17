@@ -1,4 +1,5 @@
 // Copyright 2014 The Gogs Authors. All rights reserved.
+// Copyright 2017 The Gitea Authors. All rights reserved.
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
@@ -86,17 +87,19 @@ var (
 	EnablePprof          bool
 
 	SSH = struct {
-		Disabled            bool           `ini:"DISABLE_SSH"`
-		StartBuiltinServer  bool           `ini:"START_SSH_SERVER"`
-		Domain              string         `ini:"SSH_DOMAIN"`
-		Port                int            `ini:"SSH_PORT"`
-		ListenHost          string         `ini:"SSH_LISTEN_HOST"`
-		ListenPort          int            `ini:"SSH_LISTEN_PORT"`
-		RootPath            string         `ini:"SSH_ROOT_PATH"`
-		KeyTestPath         string         `ini:"SSH_KEY_TEST_PATH"`
-		KeygenPath          string         `ini:"SSH_KEYGEN_PATH"`
-		MinimumKeySizeCheck bool           `ini:"-"`
-		MinimumKeySizes     map[string]int `ini:"-"`
+		Disabled             bool           `ini:"DISABLE_SSH"`
+		StartBuiltinServer   bool           `ini:"START_SSH_SERVER"`
+		Domain               string         `ini:"SSH_DOMAIN"`
+		Port                 int            `ini:"SSH_PORT"`
+		ListenHost           string         `ini:"SSH_LISTEN_HOST"`
+		ListenPort           int            `ini:"SSH_LISTEN_PORT"`
+		RootPath             string         `ini:"SSH_ROOT_PATH"`
+		KeyTestPath          string         `ini:"SSH_KEY_TEST_PATH"`
+		KeygenPath           string         `ini:"SSH_KEYGEN_PATH"`
+		AuthorizedKeysBackup bool           `ini:"SSH_AUTHORIZED_KEYS_BACKUP"`
+		MinimumKeySizeCheck  bool           `ini:"-"`
+		MinimumKeySizes      map[string]int `ini:"-"`
+		ExposeAnonymous      bool           `ini:"SSH_EXPOSE_ANONYMOUS"`
 	}{
 		Disabled:           false,
 		StartBuiltinServer: false,
@@ -173,6 +176,11 @@ var (
 			FileMaxSize  int64
 			MaxFiles     int
 		} `ini:"-"`
+
+		// Repository local settings
+		Local struct {
+			LocalCopyPath string
+		} `ini:"-"`
 	}{
 		AnsiCharset:            "",
 		ForcePrivate:           false,
@@ -204,6 +212,13 @@ var (
 			AllowedTypes: []string{},
 			FileMaxSize:  3,
 			MaxFiles:     5,
+		},
+
+		// Repository local settings
+		Local: struct {
+			LocalCopyPath string
+		}{
+			LocalCopyPath: "tmp/local-repo",
 		},
 	}
 	RepoRootPath string
@@ -336,6 +351,12 @@ var (
 			Schedule   string
 			OlderThan  time.Duration
 		} `ini:"cron.archive_cleanup"`
+		SyncExternalUsers struct {
+			Enabled        bool
+			RunAtStart     bool
+			Schedule       string
+			UpdateExisting bool
+		} `ini:"cron.sync_external_users"`
 	}{
 		UpdateMirror: struct {
 			Enabled    bool
@@ -378,6 +399,17 @@ var (
 			RunAtStart: true,
 			Schedule:   "@every 24h",
 			OlderThan:  24 * time.Hour,
+		},
+		SyncExternalUsers: struct {
+			Enabled        bool
+			RunAtStart     bool
+			Schedule       string
+			UpdateExisting bool
+		}{
+			Enabled:        true,
+			RunAtStart:     false,
+			Schedule:       "@every 24h",
+			UpdateExisting: true,
 		},
 	}
 
@@ -555,15 +587,7 @@ func NewContext() {
 
 	CustomPath = os.Getenv("GITEA_CUSTOM")
 	if len(CustomPath) == 0 {
-		// For backward compatibility
-		// TODO: drop in 1.1.0 ?
-		CustomPath = os.Getenv("GOGS_CUSTOM")
-		if len(CustomPath) == 0 {
-			CustomPath = workDir + "/custom"
-		} else {
-			log.Warn(`Usage of GOGS_CUSTOM is deprecated and will be *removed* in a future release,
-please consider changing to GITEA_CUSTOM`)
-		}
+		CustomPath = workDir + "/custom"
 	}
 
 	if len(CustomPID) > 0 {
@@ -572,6 +596,8 @@ please consider changing to GITEA_CUSTOM`)
 
 	if len(CustomConf) == 0 {
 		CustomConf = CustomPath + "/conf/app.ini"
+	} else if !filepath.IsAbs(CustomConf) {
+		CustomConf = filepath.Join(workDir, CustomConf)
 	}
 
 	if com.IsFile(CustomConf) {
@@ -594,18 +620,6 @@ please consider changing to GITEA_CUSTOM`)
 
 	sec := Cfg.Section("server")
 	AppName = Cfg.Section("").Key("APP_NAME").MustString("Gitea: Git with a cup of tea")
-	AppURL = sec.Key("ROOT_URL").MustString("http://localhost:3000/")
-	AppURL = strings.TrimRight(AppURL, "/") + "/"
-
-	// Check if has app suburl.
-	url, err := url.Parse(AppURL)
-	if err != nil {
-		log.Fatal(4, "Invalid ROOT_URL '%s': %s", AppURL, err)
-	}
-	// Suburl should start with '/' and end without '/', such as '/{subpath}'.
-	// This value is empty if site does not have sub-url.
-	AppSubURL = strings.TrimSuffix(url.Path, "/")
-	AppSubURLDepth = strings.Count(AppSubURL, "/")
 
 	Protocol = HTTP
 	if sec.Key("PROTOCOL").String() == "https" {
@@ -626,6 +640,24 @@ please consider changing to GITEA_CUSTOM`)
 	Domain = sec.Key("DOMAIN").MustString("localhost")
 	HTTPAddr = sec.Key("HTTP_ADDR").MustString("0.0.0.0")
 	HTTPPort = sec.Key("HTTP_PORT").MustString("3000")
+
+	defaultAppURL := string(Protocol) + "://" + Domain
+	if (Protocol == HTTP && HTTPPort != "80") || (Protocol == HTTPS && HTTPPort != "443") {
+		defaultAppURL += ":" + HTTPPort
+	}
+	AppURL = sec.Key("ROOT_URL").MustString(defaultAppURL)
+	AppURL = strings.TrimRight(AppURL, "/") + "/"
+
+	// Check if has app suburl.
+	url, err := url.Parse(AppURL)
+	if err != nil {
+		log.Fatal(4, "Invalid ROOT_URL '%s': %s", AppURL, err)
+	}
+	// Suburl should start with '/' and end without '/', such as '/{subpath}'.
+	// This value is empty if site does not have sub-url.
+	AppSubURL = strings.TrimSuffix(url.Path, "/")
+	AppSubURLDepth = strings.Count(AppSubURL, "/")
+
 	LocalURL = sec.Key("LOCAL_ROOT_URL").MustString(string(Protocol) + "://localhost:" + HTTPPort + "/")
 	OfflineMode = sec.Key("OFFLINE_MODE").MustBool()
 	DisableRouterLog = sec.Key("DISABLE_ROUTER_LOG").MustBool()
@@ -675,6 +707,8 @@ please consider changing to GITEA_CUSTOM`)
 			SSH.MinimumKeySizes[strings.ToLower(key.Name())] = key.MustInt()
 		}
 	}
+	SSH.AuthorizedKeysBackup = sec.Key("SSH_AUTHORIZED_KEYS_BACKUP").MustBool(true)
+	SSH.ExposeAnonymous = sec.Key("SSH_EXPOSE_ANONYMOUS").MustBool(false)
 
 	if err = Cfg.Section("server").MapTo(&LFS); err != nil {
 		log.Fatal(4, "Failed to map LFS settings: %v", err)
@@ -854,6 +888,7 @@ please consider changing to GITEA_CUSTOM`)
 	// Determine and create root git repository path.
 	sec = Cfg.Section("repository")
 	Repository.DisableHTTPGit = sec.Key("DISABLE_HTTP_GIT").MustBool()
+	Repository.MaxCreationLimit = sec.Key("MAX_CREATION_LIMIT").MustInt(-1)
 	RepoRootPath = sec.Key("ROOT").MustString(path.Join(homeDir, "gitea-repositories"))
 	forcePathSeparator(RepoRootPath)
 	if !filepath.IsAbs(RepoRootPath) {
@@ -868,6 +903,8 @@ please consider changing to GITEA_CUSTOM`)
 		log.Fatal(4, "Failed to map Repository.Editor settings: %v", err)
 	} else if err = Cfg.Section("repository.upload").MapTo(&Repository.Upload); err != nil {
 		log.Fatal(4, "Failed to map Repository.Upload settings: %v", err)
+	} else if err = Cfg.Section("repository.local").MapTo(&Repository.Local); err != nil {
+		log.Fatal(4, "Failed to map Repository.Local settings: %v", err)
 	}
 
 	if !filepath.IsAbs(Repository.Upload.TempPath) {
@@ -972,6 +1009,7 @@ var Service struct {
 	EnableReverseProxyAutoRegister bool
 	EnableCaptcha                  bool
 	DefaultKeepEmailPrivate        bool
+	DefaultAllowCreateOrganization bool
 	NoReplyAddress                 string
 
 	// OpenID settings
@@ -992,11 +1030,12 @@ func newService() {
 	Service.EnableReverseProxyAutoRegister = sec.Key("ENABLE_REVERSE_PROXY_AUTO_REGISTRATION").MustBool()
 	Service.EnableCaptcha = sec.Key("ENABLE_CAPTCHA").MustBool()
 	Service.DefaultKeepEmailPrivate = sec.Key("DEFAULT_KEEP_EMAIL_PRIVATE").MustBool()
+	Service.DefaultAllowCreateOrganization = sec.Key("DEFAULT_ALLOW_CREATE_ORGANIZATION").MustBool(true)
 	Service.NoReplyAddress = sec.Key("NO_REPLY_ADDRESS").MustString("noreply.example.org")
 
 	sec = Cfg.Section("openid")
-	Service.EnableOpenIDSignIn = sec.Key("ENABLE_OPENID_SIGNIN").MustBool(true)
-	Service.EnableOpenIDSignUp = sec.Key("ENABLE_OPENID_SIGNUP").MustBool(!Service.DisableRegistration)
+	Service.EnableOpenIDSignIn = sec.Key("ENABLE_OPENID_SIGNIN").MustBool(false)
+	Service.EnableOpenIDSignUp = sec.Key("ENABLE_OPENID_SIGNUP").MustBool(!Service.DisableRegistration && Service.EnableOpenIDSignIn)
 	pats := sec.Key("WHITELISTED_URIS").Strings(" ")
 	if len(pats) != 0 {
 		Service.OpenIDWhitelist = make([]*regexp.Regexp, len(pats))
@@ -1217,11 +1256,11 @@ func newSessionService() {
 // Mailer represents mail service.
 type Mailer struct {
 	// Mailer
-	QueueLength           int
-	Name                  string
-	From                  string
-	FromEmail             string
-	EnableHTMLAlternative bool
+	QueueLength     int
+	Name            string
+	From            string
+	FromEmail       string
+	SendAsPlainText bool
 
 	// SMTP sender
 	Host              string
@@ -1250,9 +1289,9 @@ func newMailService() {
 	}
 
 	MailService = &Mailer{
-		QueueLength: sec.Key("SEND_BUFFER_LEN").MustInt(100),
-		Name:        sec.Key("NAME").MustString(AppName),
-		EnableHTMLAlternative: sec.Key("ENABLE_HTML_ALTERNATIVE").MustBool(),
+		QueueLength:     sec.Key("SEND_BUFFER_LEN").MustInt(100),
+		Name:            sec.Key("NAME").MustString(AppName),
+		SendAsPlainText: sec.Key("SEND_AS_PLAIN_TEXT").MustBool(false),
 
 		Host:           sec.Key("HOST").String(),
 		User:           sec.Key("USER").String(),
@@ -1268,6 +1307,11 @@ func newMailService() {
 		SendmailPath: sec.Key("SENDMAIL_PATH").MustString("sendmail"),
 	}
 	MailService.From = sec.Key("FROM").MustString(MailService.User)
+
+	if sec.HasKey("ENABLE_HTML_ALTERNATIVE") {
+		log.Warn("ENABLE_HTML_ALTERNATIVE is deprecated, use SEND_AS_PLAIN_TEXT")
+		MailService.SendAsPlainText = !sec.Key("ENABLE_HTML_ALTERNATIVE").MustBool(false)
+	}
 
 	parsed, err := mail.ParseAddress(MailService.From)
 	if err != nil {
@@ -1305,7 +1349,7 @@ func newWebhookService() {
 	Webhook.QueueLength = sec.Key("QUEUE_LENGTH").MustInt(1000)
 	Webhook.DeliverTimeout = sec.Key("DELIVER_TIMEOUT").MustInt(5)
 	Webhook.SkipTLSVerify = sec.Key("SKIP_TLS_VERIFY").MustBool()
-	Webhook.Types = []string{"gogs", "slack"}
+	Webhook.Types = []string{"gitea", "gogs", "slack"}
 	Webhook.PagingNum = sec.Key("PAGING_NUM").MustInt(10)
 }
 

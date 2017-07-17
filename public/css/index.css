@@ -428,6 +428,42 @@ footer .ui.language .menu {
   background-color: #FAFAFA !important;
   border-width: 1px !important;
 }
+@media only screen and (max-width: 1200px) {
+  .ui.menu.new-menu {
+    overflow-x: auto !important;
+    justify-content: left !important;
+    padding-bottom: 5px;
+  }
+  .ui.menu.new-menu::-webkit-scrollbar {
+    height: 8px;
+    display: none;
+  }
+  .ui.menu.new-menu:hover::-webkit-scrollbar {
+    display: block;
+  }
+  .ui.menu.new-menu::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.01);
+  }
+  .ui.menu.new-menu::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.2);
+  }
+  .ui.menu.new-menu:after {
+    position: absolute;
+    margin-top: -15px;
+    display: block;
+    background-image: linear-gradient(to right, rgba(255, 255, 255, 0), #ffffff 100%);
+    content: ' ';
+    right: 0;
+    height: 53px;
+    z-index: 1000;
+    width: 60px;
+    clear: none;
+    visibility: visible;
+  }
+  .ui.menu.new-menu a.item:last-child {
+    padding-right: 30px !important;
+  }
+}
 .markdown:not(code) {
   overflow: hidden;
   font-family: "Helvetica Neue", Helvetica, "Segoe UI", Arial, freesans, sans-serif;
@@ -965,7 +1001,7 @@ footer .ui.language .menu {
   float: left;
 }
 .signin .oauth2 a {
-  margin-right: 5px;
+  margin-right: 3px;
 }
 .signin .oauth2 a:last-child {
   margin-right: 0px;
@@ -973,6 +1009,9 @@ footer .ui.language .menu {
 .signin .oauth2 img {
   width: 32px;
   height: 32px;
+}
+.signin .oauth2 img.openidConnect {
+  width: auto;
 }
 .user.activate form,
 .user.forgot.password form,
@@ -1127,6 +1166,9 @@ footer .ui.language .menu {
 .new.webhook .events.fields .column {
   padding-left: 40px;
 }
+.githook textarea {
+  font-family: monospace;
+}
 .repository {
   padding-top: 15px;
   padding-bottom: 80px;
@@ -1159,6 +1201,9 @@ footer .ui.language .menu {
 .repository .head .octicon.octicon-repo-forked {
   margin-top: -1px;
   font-size: 15px;
+}
+.repository .tabs .navbar {
+  justify-content: initial;
 }
 .repository .navbar {
   display: flex;
@@ -1268,7 +1313,6 @@ footer .ui.language .menu {
 }
 .repository.file.list #file-buttons {
   font-weight: normal;
-  margin-top: -3px;
 }
 .repository.file.list #file-buttons .ui.button {
   padding: 8px 10px;
@@ -1302,6 +1346,9 @@ footer .ui.language .menu {
 .repository.file.list #repo-files-table td {
   padding-top: 8px;
   padding-bottom: 8px;
+}
+.repository.file.list #repo-files-table td.message .isSigned {
+  cursor: default;
 }
 .repository.file.list #repo-files-table tr:hover {
   background-color: #ffffEE;
@@ -1363,6 +1410,10 @@ footer .ui.language .menu {
   color: #999;
   background: #f5f5f5;
   width: 1%;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 .repository.file.list #file-content .code-view .lines-num span {
   line-height: 20px;
@@ -1390,7 +1441,7 @@ footer .ui.language .menu {
 .repository.file.list #file-content .code-view .lines-code ol li,
 .repository.file.list #file-content .code-view .lines-num .hljs li,
 .repository.file.list #file-content .code-view .lines-code .hljs li {
-  display: inline-block;
+  display: block;
   width: 100%;
 }
 .repository.file.list #file-content .code-view .lines-num pre li.active,
@@ -1930,10 +1981,15 @@ footer .ui.language .menu {
 .repository #commits-table td.sha .sha.label {
   margin: 0;
 }
-.repository #commits-table td.sha .sha.label.isSigned {
+.repository #commits-table.ui.basic.striped.table tbody tr:nth-child(2n) {
+  background-color: rgba(0, 0, 0, 0.02) !important;
+}
+.repository #commits-table td.sha .sha.label.isSigned,
+.repository #repo-files-table .sha.label.isSigned {
   border: 1px solid #BBB;
 }
-.repository #commits-table td.sha .sha.label.isSigned .detail.icon {
+.repository #commits-table td.sha .sha.label.isSigned .detail.icon,
+.repository #repo-files-table .sha.label.isSigned .detail.icon {
   background: #FAFAFA;
   margin: -6px -10px -4px 0px;
   padding: 5px 3px 5px 6px;
@@ -1941,15 +1997,14 @@ footer .ui.language .menu {
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
 }
-.repository #commits-table td.sha .sha.label.isSigned.isVerified {
+.repository #commits-table td.sha .sha.label.isSigned.isVerified,
+.repository #repo-files-table .sha.label.isSigned.isVerified {
   border: 1px solid #21BA45;
   background: #21BA4518;
 }
-.repository #commits-table td.sha .sha.label.isSigned.isVerified .detail.icon {
+.repository #commits-table td.sha .sha.label.isSigned.isVerified .detail.icon,
+.repository #repo-files-table .sha.label.isSigned.isVerified .detail.icon {
   border-left: 1px solid #21BA4580;
-}
-.repository #commits-table.ui.basic.striped.table tbody tr:nth-child(2n) {
-  background-color: rgba(0, 0, 0, 0.02) !important;
 }
 .repository .diff-detail-box {
   margin: 15px 0;
@@ -2224,15 +2279,15 @@ footer .ui.language .menu {
 .repository.wiki.view .ui.sub.header {
   text-transform: none;
 }
-.repository.wiki.view .markdown {
+.repository.wiki.view > .markdown {
   padding: 15px 30px;
 }
-.repository.wiki.view .markdown h1:first-of-type,
-.repository.wiki.view .markdown h2:first-of-type,
-.repository.wiki.view .markdown h3:first-of-type,
-.repository.wiki.view .markdown h4:first-of-type,
-.repository.wiki.view .markdown h5:first-of-type,
-.repository.wiki.view .markdown h6:first-of-type {
+.repository.wiki.view > .markdown h1:first-of-type,
+.repository.wiki.view > .markdown h2:first-of-type,
+.repository.wiki.view > .markdown h3:first-of-type,
+.repository.wiki.view > .markdown h4:first-of-type,
+.repository.wiki.view > .markdown h5:first-of-type,
+.repository.wiki.view > .markdown h6:first-of-type {
   margin-top: 0;
 }
 .repository.settings.collaboration .collaborator.list {
@@ -2403,6 +2458,9 @@ footer .ui.language .menu {
 }
 .settings .list.email > .item:not(:first-child) {
   min-height: 60px;
+}
+.settings .list.collaborator > .item {
+  padding: 0;
 }
 .ui.vertical.menu .header.item {
   font-size: 1.1em;
@@ -2928,12 +2986,12 @@ footer .ui.language .menu {
   margin: 0;
 }
 .admin dl.admin-dl-horizontal dd {
-  margin-left: 240px;
+  margin-left: 275px;
 }
 .admin dl.admin-dl-horizontal dt {
   font-weight: bolder;
   float: left;
-  width: 250px;
+  width: 285px;
   clear: left;
   overflow: hidden;
   text-overflow: ellipsis;
